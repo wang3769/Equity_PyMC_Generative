@@ -1,0 +1,7 @@
+# Ignore any database and large data files in the project data folder
+data/**
+*.db
+*.sqlite
+*.csv
+*.pth
+*.env
