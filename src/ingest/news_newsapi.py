@@ -9,7 +9,7 @@ import pandas as pd
 
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 
-
+# This function turns any string into a stable, compact fingerprint suitable for IDs and caching
 def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
 
@@ -71,6 +71,7 @@ def fetch_newsapi(
             )
 
         # Respect rate limits / politeness
+        # APIs often enforce: Requests per second
         time.sleep(pause_s)
 
         # NewsAPI gives totalResults; stop early if we likely exhausted pages
@@ -79,7 +80,7 @@ def fetch_newsapi(
 
     return pd.DataFrame(rows)
 
-
+# this function is select either ticker or name, either is available with name be the first option
 def build_query_simple(ticker: str, company_name: str | None = None) -> str:
     """
     Strategy 1: 'TICKER OR CompanyName' (company_name optional).
