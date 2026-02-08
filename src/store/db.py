@@ -61,6 +61,44 @@ def init_tables(engine: Engine) -> None:
 
       PRIMARY KEY (ticker, dt)
     );
+  CREATE TABLE IF NOT EXISTS fundamentals_snapshot (
+      ticker TEXT NOT NULL,
+      asof   TEXT NOT NULL,   -- ISO date YYYY-MM-DD of snapshot pull
+      market_cap      REAL,
+      trailing_pe     REAL,
+      price_to_book   REAL,
+      profit_margins  REAL,
+      operating_margins REAL,
+      return_on_equity REAL,
+      PRIMARY KEY (ticker, asof)
+    );
+    CREATE TABLE IF NOT EXISTS news_raw (
+      ticker        TEXT,
+      published_at  TEXT,    -- ISO datetime from NewsAPI
+      dt            TEXT,    -- YYYY-MM-DD derived
+      source        TEXT,
+      title         TEXT,
+      description   TEXT,
+      url           TEXT,
+      content_hash  TEXT     -- sha1(url)
+    );
+
+    CREATE TABLE IF NOT EXISTS news_scored (
+      content_hash  TEXT,
+      model_name    TEXT,
+      sent_pos      REAL,
+      sent_neg      REAL,
+      sent_neu      REAL,
+      sent_score    REAL     -- p_pos - p_neg
+    );
+
+    CREATE TABLE IF NOT EXISTS news_daily (
+      ticker         TEXT,
+      dt             TEXT,
+      news_count_1d  REAL,
+      news_sent_1d   REAL,
+      news_sent_7d   REAL
+    );
     """
     with engine.begin() as conn:
         for stmt in ddl.strip().split(";"):

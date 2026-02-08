@@ -87,12 +87,29 @@ def rolling_beta(asset_ret: pd.Series, mkt_ret: pd.Series, window: int = 60) -> 
     var = mkt_ret.rolling(window).var()
     return cov / (var + 1e-12)
 
-def build_signals(prices: pd.DataFrame, macro: pd.DataFrame, market_ticker: str = "SPY") -> pd.DataFrame:
+def build_signals(
+    prices: pd.DataFrame,
+    macro: pd.DataFrame,
+    fundamentals: pd.DataFrame | None = None,
+    news_daily: pd.DataFrame | None = None,
+    market_ticker: str = "SPY",
+) -> pd.DataFrame:
+
     """
     prices columns: ticker, dt, close, volume
     macro columns: dt, curve_slope, ...
     """
     p = prices.copy()
+    if fundamentals is not None and len(fundamentals) > 0:
+        p = attach_latest_fundamentals(p, fundamentals)
+    # Attach news sentiment (daily per ticker). If missing, default to 0.
+    if news_daily is not None and len(news_daily) > 0:
+        nd = news_daily[["ticker", "dt", "news_sent_7d"]].copy()
+        nd["dt"] = nd["dt"].astype(str)
+        p = p.merge(nd, on=["ticker", "dt"], how="left")
+        p["news_sent_7d"] = p["news_sent_7d"].fillna(0.0)
+    else:
+        p["news_sent_7d"] = 0.0
     p["dt"] = p["dt"].astype(str)
     p = p.sort_values(["ticker", "dt"])
 
@@ -126,33 +143,110 @@ def build_signals(prices: pd.DataFrame, macro: pd.DataFrame, market_ticker: str 
     )
 
     # Macro proxy: curve slope zscore (same for all tickers by date)
-    m = macro[["dt", "curve_slope"]].copy()
+# Macro proxies: curve slope + credit spread (same for all tickers by date)
+    m = macro[["dt", "curve_slope", "credit_spread"]].copy()
+    m["dt"] = m["dt"].astype(str)
+
     m["curve_slope_z"] = (m["curve_slope"] - m["curve_slope"].mean()) / (m["curve_slope"].std() + 1e-12)
-    p = p.merge(m[["dt", "curve_slope_z"]], on="dt", how="left")
+    m["credit_spread_z"] = (m["credit_spread"] - m["credit_spread"].mean()) / (m["credit_spread"].std() + 1e-12)
+
+    p = p.merge(m[["dt", "curve_slope_z", "credit_spread_z"]], on="dt", how="left")
     p["macro_sens"] = p["curve_slope_z"]
+    p["credit_sens"] = p["credit_spread_z"].fillna(0.0)
 
     # Proxies / empty for now
-    p["value_z"] = 0.0
-    p["quality_z"] = 0.0
-    p["credit_sens"] = 0.0
-    p["news_sent_7d"] = 0.0
+    #p["value_z"] = 0.0
+    #p["quality_z"] = 0.0
+    # Expect macro to contain credit_spread (daily)
+    #p["news_sent_7d"] = 0.0
+        # --- log_mktcap: prefer true market cap; fallback to liquidity proxy ---
+    if "market_cap" in p.columns:
+        p["log_mktcap"] = np.where(
+            p["market_cap"].notna() & (p["market_cap"] > 0),
+            _safe_log(p["market_cap"]),
+            _safe_log(p["dollar_vol_20d"])
+        )
+    else:
+        p["log_mktcap"] = _safe_log(p["dollar_vol_20d"])
+
+    # --- value_z: prefer -log(trailingPE); fallback -log(price_to_book); else 0 ---
+    value_raw = None
+    if "trailing_pe" in p.columns:
+        value_raw = np.where(
+            p["trailing_pe"].notna() & (p["trailing_pe"] > 0),
+            -_safe_log(p["trailing_pe"]),
+            np.nan
+        )
+    if value_raw is None or np.all(pd.isna(value_raw)):
+        if "price_to_book" in p.columns:
+            value_raw = np.where(
+                p["price_to_book"].notna() & (p["price_to_book"] > 0),
+                -_safe_log(p["price_to_book"]),
+                np.nan
+            )
+    p["value_raw"] = value_raw
+    p["value_z"] = 0.0  # will be overwritten after merge + z-score step if available
+
+    # --- quality_z: use profit_margins; fallback operating_margins; fallback ROE ---
+    quality_raw = None
+    for col in ["profit_margins", "operating_margins", "return_on_equity"]:
+        if col in p.columns:
+            q = p[col].astype(float)
+            if quality_raw is None:
+                quality_raw = q
+            else:
+                # if we already have something, fill missing from fallback
+                quality_raw = quality_raw.where(quality_raw.notna(), q)
+    p["quality_raw"] = quality_raw
+    p["quality_z"] = 0.0  # overwrite later if available
+
 
     # Target: next-day return
     p["ret_1d_fwd"] = p.groupby("ticker")["ret_1d"].shift(-1)
 
     # Keep only needed output
-    out = p[["ticker", "dt", "ret_1d_fwd"] + FEATURE_COLS].rename(columns={"ret_1d_fwd": "ret_1d"})
+    out = p[["ticker", "dt", "ret_1d_fwd"] + FEATURE_COLS + ["value_raw", "quality_raw"]].rename(columns={"ret_1d_fwd": "ret_1d"})
 
-    # Drop rows with missing due to rolling windows / merges
     out = out.dropna(subset=["ret_1d", "beta_mkt", "mom_12_1", "vol_20d", "illiq_amihud", "macro_sens", "log_mktcap"])
 
-    # Cross-sectional z-score each day for stability (common in equity modeling)
-    # NOTE: Do NOT zscore ret_1d (target). Only features.
+    # Cross-sectional z-score each day for stability
     for c in FEATURE_COLS:
+        # value_z and quality_z will be handled from raw fields below
+        if c in ["value_z", "quality_z"]:
+            continue
         mu = out.groupby("dt")[c].transform("mean")
         sd = out.groupby("dt")[c].transform("std")
         out[c] = (out[c] - mu) / (sd + 1e-12)
 
+    # value_z from value_raw (if present and has variance)
+    if "value_raw" in out.columns:
+        mu = out.groupby("dt")["value_raw"].transform("mean")
+        sd = out.groupby("dt")["value_raw"].transform("std")
+        out["value_z"] = (out["value_raw"] - mu) / (sd + 1e-12)
+        out["value_z"] = out["value_z"].fillna(0.0)
+
+    # quality_z from quality_raw
+    if "quality_raw" in out.columns:
+        mu = out.groupby("dt")["quality_raw"].transform("mean")
+        sd = out.groupby("dt")["quality_raw"].transform("std")
+        out["quality_z"] = (out["quality_raw"] - mu) / (sd + 1e-12)
+        out["quality_z"] = out["quality_z"].fillna(0.0)
+
+    # drop raw helpers
+    out = out.drop(columns=[c for c in ["value_raw", "quality_raw"] if c in out.columns])
+
     print("Signals rows per ticker:")
     print(out.groupby("ticker").size().sort_values(ascending=False).head(20))
     return out
+
+# seperate function to attach fundamentals later when we have them, 
+def attach_latest_fundamentals(panel: pd.DataFrame, fundamentals: pd.DataFrame) -> pd.DataFrame:
+    """
+    fundamentals: ticker, asof, market_cap, trailing_pe, price_to_book, profit_margins, ...
+    Attaches the latest snapshot PER ticker (max asof).
+    """
+    f = fundamentals.copy()
+    f["asof"] = f["asof"].astype(str)
+    f = f.sort_values(["ticker", "asof"])
+    f_latest = f.groupby("ticker", as_index=False).tail(1)  # last snapshot per ticker
+    return panel.merge(f_latest.drop(columns=["asof"]), on="ticker", how="left")

@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import os
 import pandas as pd
+from sqlalchemy import text
 
 from src.store.db import get_engine, init_tables
 from src.ingest.prices_yf import download_prices
 from src.ingest.macro_fred import build_macro_frame
 from src.transform.signals import build_signals
+
+from src.ingest.fundamentals_yahoo import fetch_many as fetch_fundamentals_many
+import datetime as dt
+
 
 
 TICKERS = ["AMZN", "META", "GOOG", "AAPL", "MSFT", "NVDA", "ORCL",
@@ -67,12 +72,35 @@ def main(start="2018-01-01", end="2026-01-01", db_url: str | None = None):
     prices_tbl = prices[["ticker", "dt", "close", "volume"]].copy()
     macro_tbl = macro.copy()
 
+    # 2.5) fundamentals snapshot (Yahoo)
+    asof = dt.date.today().strftime("%Y-%m-%d")
+    fund = fetch_fundamentals_many(TICKERS, asof=asof)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM fundamentals_snapshot WHERE asof = :asof"), {"asof": asof})
+    fund.to_sql("fundamentals_snapshot", con=engine, if_exists="append", index=False)
+    print(f"✓ saved fundamentals_snapshot rows: {len(fund)} (asof={asof})")
+
+
     # 4) write raw tables (replace is fine for prototype)
     prices_tbl.to_sql("prices_daily", con=engine, if_exists="replace", index=False)
     macro_tbl.to_sql("macro_daily", con=engine, if_exists="replace", index=False)
 
+    try:
+        news_daily = pd.read_sql("SELECT ticker, dt, news_sent_7d FROM news_daily", con=engine)
+        print(f"✓ loaded news_daily: {len(news_daily)} rows")
+    except Exception:
+        news_daily = None
+        print("ℹ news_daily not found; using news_sent_7d = 0")
+
     # 5) build signals (9 inputs; news empty)
-    signals = build_signals(prices_tbl, macro_tbl, market_ticker=MARKET)
+    signals = build_signals(
+    prices_tbl,
+    macro_tbl,
+    fundamentals=fund,
+    news_daily=news_daily,
+    market_ticker=MARKET,
+    )
+    print("news_sent_7d stats:", signals["news_sent_7d"].describe())
 
     # 6) store signals + model frame
     signals.to_sql("signals_daily", con=engine, if_exists="replace", index=False)
