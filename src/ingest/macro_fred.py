@@ -39,7 +39,9 @@ def build_macro_frame(start: str, end: str) -> pd.DataFrame:
     api_key = os.environ.get("FRED_API_KEY")
     if not api_key:
         raise EnvironmentError("Missing env var FRED_API_KEY (required for FRED API calls).")
-
+    
+    # Interest rates: 10Y and 2Y Treasury yields as key macro indicators
+    # Daily Treasury Constant Maturity Rate, 10-Year
     dgs10 = fetch_fred_series("DGS10", start, end, api_key)
     dgs2 = fetch_fred_series("DGS2", start, end, api_key)
 

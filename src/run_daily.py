@@ -72,7 +72,7 @@ def main(start="2018-01-01", end="2026-01-01", db_url: str | None = None):
     prices_tbl = prices[["ticker", "dt", "close", "volume"]].copy()
     macro_tbl = macro.copy()
 
-    # 2.5) fundamentals snapshot (Yahoo)
+    # 2.5) fundamentals snapshot (Yahoo), the fundamentals is only today
     asof = dt.date.today().strftime("%Y-%m-%d")
     fund = fetch_fundamentals_many(TICKERS, asof=asof)
     with engine.begin() as conn:
