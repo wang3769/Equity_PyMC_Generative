@@ -110,4 +110,5 @@ def main(start="2018-01-01", end="2026-01-01", db_url: str | None = None):
     print("✓ saved data/model_frame.parquet", signals.shape)
 
 if __name__ == "__main__":
-    main()
+    today_str = dt.date.today().strftime("%Y-%m-%d")
+    main(end = today_str)

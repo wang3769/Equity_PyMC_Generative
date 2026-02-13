@@ -9,7 +9,13 @@ from src.transform.news_features import build_news_daily
 from dotenv import load_dotenv
 load_dotenv()
 
-TICKERS = ["AAPL","MSFT","AMZN","GOOG","META","NVDA","CRM","TSM"]  # your set
+TICKERS = ["AMZN", "META", "GOOG", "AAPL", "MSFT", "NVDA", "ORCL",
+           "ADBE", "CRM", "NOW", "INTU", "PANW", "WDAY",
+           "SNOW", "DDOG", "CRWD", "NET", "MDB", "PLTR", "SHOP", "UBER",
+           "ANBN", "PINS", "PYPL", "TEAM", "HUBS", "OKTA", "ZS", "DT", "MNDY","ASAN",
+           "SMAR", "FRSH", "INFA", "DUOL", "U", "FIG", "KLAR",
+           "UNH","TSM","BABA", "LRCX"]  # your set
+
 TICKER_TO_NAME = {
     "GOOG": "Alphabet",
     "META": "Meta Platforms",

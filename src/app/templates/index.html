@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="grid">
+    <div class="card">
+      <h2>Model Performance</h2>
+      <div id="report" class="kv"></div>
+      <div class="muted small">Source: data/model_report.json</div>
+    </div>
+
+    <div class="card">
+      <h2>Universe Snapshot</h2>
+      <div id="snapshot" class="kv"></div>
+      <div class="muted small">Source: data/today_scores.csv</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2 style="margin:0;">Ticker Scores</h2>
+      <input id="search" class="search" placeholder="Search ticker..." />
+    </div>
+    <div class="muted small">Click column headers to sort.</div>
+    <div class="tablewrap">
+      <table id="scoresTable">
+        <thead id="scoresHead"></thead>
+        <tbody id="scoresBody"></tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

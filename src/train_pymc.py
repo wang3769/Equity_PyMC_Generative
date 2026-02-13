@@ -142,11 +142,11 @@ def main():
     df = pd.read_parquet("data/model_frame.parquet")
     # ---- SPEED MODE (prototype) ----
     # 1) use a smaller time window
-    df = df[df["dt"] >= "2023-01-01"].copy()
+    #df = df[df["dt"] >= "2023-01-01"].copy()
 
     # 2) optionally keep fewer tickers
-    keep = ["AAPL", "MSFT", "AMZN", "GOOG", "META", "NVDA", "CRM", "TSM"]
-    df = df[df["ticker"].isin(keep)].copy()
+    # keep = ["AAPL", "MSFT", "AMZN", "GOOG", "META", "NVDA", "CRM", "TSM"]
+    # df = df[df["ticker"].isin(keep)].copy()
 
     # 3) cap rows per ticker to keep runtime predictable
     df = (df.sort_values(["ticker", "dt"])
